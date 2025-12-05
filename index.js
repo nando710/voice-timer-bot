@@ -38,7 +38,7 @@ async function criarEvento(channel) {
 
     const evento = await guild.scheduledEvents.create({
       name: `${channel.name} — Em chamada`,
-      scheduledStartTime: new Date(),
+      scheduledStartTime: new Date(Date.now() + 3000),
       privacyLevel: 2, // GUILD_ONLY
       entityType: 2, // VOICE
       channel: channel.id
@@ -125,3 +125,4 @@ client.login(TOKEN).catch((err) => {
   console.error('❌ Erro ao logar:', err);
   process.exit(1);
 });
+
