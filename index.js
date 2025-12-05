@@ -1,10 +1,8 @@
-require("dotenv").config();
-const {
-  Client,
-  GatewayIntentBits,
-  ChannelType
-} = require("discord.js");
+// index.js
+require('dotenv').config();
+const { Client, GatewayIntentBits } = require('discord.js');
 
+// ✅ Cria o cliente com intents para voz
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -12,82 +10,125 @@ const client = new Client({
   ]
 });
 
-// Armazenaremos aqui o ID do evento ativo por servidor
-let activeEvents = new Map();
+// 🔑 Token do bot (vem do .env / Coolify)
+const TOKEN = process.env.DISCORD_TOKEN;
+if (!TOKEN) {
+  console.error('❌ ERRO: DISCORD_TOKEN não definido nas variáveis de ambiente.');
+  process.exit(1);
+}
 
-client.once("ready", () => {
+// 👀 Helpers
+
+/**
+ * Conta quantos membros humanos existem em um canal de voz
+ * @param {import('discord.js').VoiceChannel | null} channel
+ * @returns {number}
+ */
+const getHumanCount = (channel) => {
+  if (!channel) return 0;
+  return channel.members.filter((m) => !m.user.bot).size;
+};
+
+/**
+ * Lógica ao INICIAR um "evento" quando canal de voz passa de vazio -> 1 humano
+ * @param {import('discord.js').VoiceChannel} channel
+ */
+const iniciarEvento = async (channel) => {
+  try {
+    console.log(`🟢 [INICIAR EVENTO] Canal: ${channel.name} (ID: ${channel.id})`);
+
+    // 👉 Aqui você coloca o que quiser que aconteça quando o canal "começa"
+    // Exemplo: logar em um canal de texto (se quiser)
+    // const LOG_CHANNEL_ID = process.env.LOG_CHANNEL_ID;
+    // if (LOG_CHANNEL_ID) {
+    //   const logChannel = await channel.guild.channels.fetch(LOG_CHANNEL_ID);
+    //   if (logChannel && logChannel.isTextBased()) {
+    //     await logChannel.send(`🟢 Evento iniciado em **${channel.name}**.`);
+    //   }
+    // }
+  } catch (error) {
+    console.error('❌ Erro ao iniciar evento:', error);
+  }
+};
+
+/**
+ * Lógica ao FINALIZAR um "evento" quando canal de voz fica vazio
+ * @param {import('discord.js').VoiceChannel} channel
+ */
+const finalizarEvento = async (channel) => {
+  try {
+    console.log(`🔴 [FINALIZAR EVENTO] Canal: ${channel.name} (ID: ${channel.id})`);
+
+    // 👉 Aqui você coloca o que quiser que aconteça quando o canal "termina"
+    // Exemplo: enviar mensagem em canal de log
+    // const LOG_CHANNEL_ID = process.env.LOG_CHANNEL_ID;
+    // if (LOG_CHANNEL_ID) {
+    //   const logChannel = await channel.guild.channels.fetch(LOG_CHANNEL_ID);
+    //   if (logChannel && logChannel.isTextBased()) {
+    //     await logChannel.send(`🔴 Evento finalizado em **${channel.name}** (canal ficou vazio).`);
+    //   }
+    // }
+  } catch (error) {
+    console.error('❌ Erro ao finalizar evento:', error);
+  }
+};
+
+// 🚀 Quando o bot estiver pronto
+client.once('ready', () => {
   console.log(`🔥 Bot logado como ${client.user.tag}`);
 });
 
-client.on("voiceStateUpdate", async (oldState, newState) => {
-  const guild = newState.guild;
+// Também registra clientReady pra já ficar preparado p/ futuras versões
+client.once('clientReady', () => {
+  console.log(`🔥 (clientReady) Bot logado como ${client.user.tag}`);
+});
 
-  const oldChannel = oldState.channel;
-  const newChannel = newState.channel;
+// 🎧 Listener de eventos de voz
+client.on('voiceStateUpdate', async (oldState, newState) => {
+  try {
+    // Ignora bots
+    if (oldState.member?.user.bot || newState.member?.user.bot) return;
 
-  // LOG básico
-  console.log("🎧 Evento de voz detectado");
-  console.log(`old=${oldChannel?.name || "nenhum"} | new=${newChannel?.name || "nenhum"}`);
+    const oldChannel = oldState.channel;
+    const newChannel = newState.channel;
 
-  // ================
-  // 1) USUÁRIO ENTROU EM UM CANAL DE VOZ
-  // ================
-  if (!oldChannel && newChannel && newChannel.type === ChannelType.GuildVoice) {
-    const total = newChannel.members.size;
-    console.log(`👉 Usuário entrou no canal ${newChannel.name} | membros: ${total}`);
+    // Se não houve mudança real de canal, ignora
+    if (oldChannel === newChannel) return;
 
-    // Se ele for o primeiro (canal estava vazio), cria o evento
-    if (total === 1) {
-      console.log("🟢 Canal estava vazio → criando evento...");
+    console.log('🎧 Evento de voz detectado');
+    console.log(`old=${oldChannel?.name ?? 'nenhum'} | new=${newChannel?.name ?? 'nenhum'}`);
 
-      try {
-        const event = await guild.scheduledEvents.create({
-          name: "Networking Aberto",
-          scheduledStartTime: new Date(Date.now() + 60_000), // começa em 1 minuto
-          privacyLevel: 2,
-          entityType: 2, // Voice
-          channel: newChannel.id,
-          description: "Evento automático iniciado quando alguém entrou no canal."
-        });
+    const oldCount = getHumanCount(oldChannel);
+    const newCount = getHumanCount(newChannel);
 
-        activeEvents.set(guild.id, event.id);
-        console.log(`✅ Evento criado! ID: ${event.id}`);
+    // 1) SAÍDA de canal (ou moveu de um canal para outro)
+    if (oldChannel && (!newChannel || oldChannel.id !== newChannel.id)) {
+      console.log(`👋 Usuário saiu de ${oldChannel.name} | membros após saída: ${oldCount}`);
 
-      } catch (err) {
-        console.error("❌ Erro ao criar evento:", err);
+      // Canal ficou vazio → FINALIZAR EVENTO
+      if (oldCount === 0) {
+        console.log(`🔴 ${oldChannel.name} ficou vazio → finalizando evento...`);
+        await finalizarEvento(oldChannel);
       }
     }
-  }
 
-  // ================
-  // 2) USUÁRIO SAIU DO CANAL → talvez o canal ficou vazio
-  // ================
-  if (oldChannel && oldChannel.type === ChannelType.GuildVoice) {
-    const remaining = oldChannel.members.size;
+    // 2) ENTRADA em canal (ou moveu de outro canal)
+    if (newChannel && (!oldChannel || oldChannel.id !== newChannel.id)) {
+      console.log(`✅ Usuário entrou em ${newChannel.name} | membros após entrada: ${newCount}`);
 
-    console.log(`👋 Usuário saiu de ${oldChannel.name} | membros restantes: ${remaining}`);
-
-    if (remaining === 0) {
-      console.log("🔴 Canal ficou vazio → finalizando evento...");
-
-      const eventId = activeEvents.get(guild.id);
-      if (!eventId) return console.log("⚠ Nenhum evento ativo registrado.");
-
-      try {
-        const event = await guild.scheduledEvents.fetch(eventId);
-
-        if (event && event.status !== 3) { // 3 = completed
-          await event.delete();
-          console.log("🧨 Evento finalizado com sucesso!");
-        }
-
-        activeEvents.delete(guild.id);
-
-      } catch (err) {
-        console.error("❌ Erro ao finalizar evento:", err);
+      // Canal estava vazio e agora tem exatamente 1 humano → INICIAR EVENTO
+      if (newCount === 1) {
+        console.log(`🟢 ${newChannel.name} estava vazio → iniciando evento...`);
+        await iniciarEvento(newChannel);
       }
     }
+  } catch (error) {
+    console.error('❌ Erro em voiceStateUpdate:', error);
   }
 });
 
-client.login(process.env.DISCORD_TOKEN);
+// 🔌 Login do bot
+client.login(TOKEN).catch((err) => {
+  console.error('❌ Erro ao logar no Discord:', err);
+  process.exit(1);
+});
